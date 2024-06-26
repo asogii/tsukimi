@@ -5,7 +5,7 @@ ENV CARGO_TERM_COLOR=always \
     RUST_BACKTRACE=full
 
 RUN pacman -Syu --noconfirm &&\
-    pacman -S --noconfirm git base-devel sudo appimagetool
+    pacman -S --noconfirm git base-devel sudo appimagetool-continuous
 
 RUN useradd -m -G wheel -s /bin/bash alice \
     && echo 'alice:password' | chpasswd
