@@ -5,7 +5,7 @@ ENV CARGO_TERM_COLOR=always \
     RUST_BACKTRACE=full
 
 RUN pacman -Syu --noconfirm &&\
-    pacman -S --noconfirm git base-devel sudo appimagetool-continuous
+    pacman -S --noconfirm git base-devel sudo wget
 
 RUN useradd -m -G wheel -s /bin/bash alice \
     && echo 'alice:password' | chpasswd
@@ -30,7 +30,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&\
     cargo install cargo-deb --no-default-features &&\
     cargo deb
 
-RUN cargo install cargo-appimage &&\
+RUN sudo wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-$(uname -m).AppImage -O /usr/local/bin/appimagetool &&\
+    sudo chmod +x /usr/local/bin/appimagetool &&\
+    sudo sed -i 's|AI\x02|\x00\x00\x00|' /usr/local/bin/appimagetool &&\
+    cargo install cargo-appimage &&\
     APPIMAGE_EXTRACT_AND_RUN=1 cargo appimage
 
 FROM ubuntu:latest
