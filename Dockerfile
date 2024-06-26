@@ -33,7 +33,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&\
 RUN sudo wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-$(uname -m).AppImage -O /usr/local/bin/appimagetool &&\
     sudo chmod +x /usr/local/bin/appimagetool &&\
     sudo sed -i 's|AI\x02|\x00\x00\x00|' /usr/local/bin/appimagetool &&\
-    cargo install cargo-appimage --no-default-features &&\
+    cargo install cargo-appimage &&\
     APPIMAGE_EXTRACT_AND_RUN=1 cargo appimage
 
 FROM ubuntu:latest
@@ -42,9 +42,9 @@ WORKDIR /usr/src/tsukimi
 
 VOLUME /usr/src/tsukimi
 
-COPY --from=builder /home/alice/target/release/tsukimi /usr/src/tsukimi/
+#COPY --from=builder /home/alice/target/release/tsukimi /usr/src/tsukimi/
 
-COPY --from=builder /home/alice/target/debian/*.deb /usr/src/tsukimi/
+#COPY --from=builder /home/alice/target/debian/*.deb /usr/src/tsukimi/
 
 COPY --from=builder /home/alice/target/appimage/*.AppImage /usr/src/tsukimi/
 
