@@ -30,6 +30,12 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y &&\
     cargo install cargo-deb --no-default-features &&\
     cargo deb
 
+RUN wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-$(uname -m).AppImage -O /usr/local/bin/appimagetool &&\
+    chmod +x /usr/local/bin/appimagetool &&\
+    sed -i 's|AI\x02|\x00\x00\x00|' /usr/local/bin/appimagetool &&\
+    cargo install cargo-appimage &&\
+    APPIMAGE_EXTRACT_AND_RUN=1 cargo appimage
+
 FROM ubuntu:latest
 
 WORKDIR /usr/src/tsukimi
