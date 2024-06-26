@@ -7,7 +7,6 @@ license = "GPL"
 
 
 [dependencies]
-mujs = "0.0.3"
 gtk = { version = "0.8.2", package = "gtk4", features = ["v4_14"] }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_yaml = "0.9.34"
