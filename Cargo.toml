@@ -54,3 +54,6 @@ assets = [
     ["target/release/tsukimi", "usr/bin/", "755"],
     ["README.md", "usr/share/doc/tsukimi/README", "644"],
 ]
+
+[package.metadata.appimage]
+auto_link = true
