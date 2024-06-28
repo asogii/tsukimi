@@ -13,17 +13,20 @@ use crate::client::structs::*;
 use crate::toast;
 use crate::ui::models::SETTINGS;
 use crate::ui::mpv;
+use crate::ui::provider::actions::HasLikeAction;
 use crate::ui::provider::dropdown_factory::factory;
 use crate::utils::{get_image_with_cache, req_cache, spawn, spawn_tokio};
 use chrono::{DateTime, Local, NaiveDateTime, Utc};
 
 use super::fix::ScrolledWindowFixExt;
+use super::song_widget::format_duration;
 use super::window::Window;
 
-mod imp {
+pub(crate) mod imp {
     use crate::ui::widgets::fix::ScrolledWindowFixExt;
     use crate::ui::widgets::horbu_scrolled::HorbuScrolled;
     use crate::ui::widgets::hortu_scrolled::HortuScrolled;
+    use crate::ui::widgets::star_toggle::StarToggle;
     use crate::utils::spawn_g_timeout;
     use adw::subclass::prelude::*;
     use glib::subclass::InitializingObject;
@@ -110,9 +113,7 @@ mod imp {
         #[template_child]
         pub indicator: TemplateChild<adw::CarouselIndicatorLines>,
         #[template_child]
-        pub favourite_button_split: TemplateChild<adw::SplitButton>,
-        #[template_child]
-        pub favourite_button_split_content: TemplateChild<adw::ButtonContent>,
+        pub favourite_button: TemplateChild<StarToggle>,
         #[template_child]
         pub tagline: TemplateChild<gtk::Label>,
         #[template_child]
@@ -125,6 +126,9 @@ mod imp {
         #[property(get, set, construct_only)]
         pub name: RefCell<Option<String>>,
         pub selected: RefCell<Option<String>>,
+
+        pub videoselection: gtk::SingleSelection,
+        pub subselection: gtk::SingleSelection,
     }
 
     // The central trait for subclassing a GObject
@@ -136,6 +140,7 @@ mod imp {
         type ParentType = adw::NavigationPage;
 
         fn class_init(klass: &mut Self::Class) {
+            StarToggle::ensure_type();
             HortuScrolled::ensure_type();
             HorbuScrolled::ensure_type();
             klass.bind_template();
@@ -152,30 +157,6 @@ mod imp {
             klass.install_action("item.last", None, move |window, _action, _parameter| {
                 window.itemlast();
             });
-            klass.install_action_async(
-                "like.episode",
-                None,
-                |window, _action, _parameter| async move {
-                    window.like_episode().await;
-                },
-            );
-            klass.install_action_async("unlike", None, |window, _action, _parameter| async move {
-                window.unlike().await;
-            });
-            klass.install_action_async(
-                "mark.played",
-                None,
-                |window, _action, _parameter| async move {
-                    window.played().await;
-                },
-            );
-            klass.install_action_async(
-                "mark.unplayed",
-                None,
-                |window, _action, _parameter| async move {
-                    window.unplayed().await;
-                },
-            );
         }
 
         fn instance_init(obj: &InitializingObject<Self>) {
@@ -230,79 +211,7 @@ impl ItemPage {
             .build()
     }
 
-    pub async fn played(&self) {
-        let imp = self.imp();
-        imp.favourite_button_split.set_sensitive(false);
-        let id = self.inid();
-        match spawn_tokio(async move { EMBY_CLIENT.set_as_played(&id).await }).await {
-            Ok(_) => (),
-            Err(e) => {
-                toast!(self, e.to_user_facing());
-                return;
-            }
-        };
-        imp.favourite_button_split.set_sensitive(true);
-        toast!(self, "Mark as played successfully.");
-    }
-
-    pub async fn unplayed(&self) {
-        let imp = self.imp();
-        imp.favourite_button_split.set_sensitive(false);
-        let id = self.inid();
-        match spawn_tokio(async move { EMBY_CLIENT.set_as_unplayed(&id).await }).await {
-            Ok(_) => (),
-            Err(e) => {
-                toast!(self, e.to_user_facing());
-                return;
-            }
-        };
-        imp.favourite_button_split.set_sensitive(true);
-        toast!(self, "Mark as unplayed successfully.");
-    }
-
-    pub async fn like_episode(&self) {
-        let imp = self.imp();
-        let spilt_button_content = imp.favourite_button_split_content.get();
-        let spilt_button = imp.favourite_button_split.get();
-        imp.favourite_button_split.set_sensitive(false);
-        let id = self.inid();
-        match spawn_tokio(async move { EMBY_CLIENT.like(&id).await }).await {
-            Ok(_) => (),
-            Err(e) => {
-                toast!(self, e.to_user_facing());
-                return;
-            }
-        };
-
-        spilt_button.set_action_name(Some("unlike"));
-        spilt_button_content.set_icon_name("starred-symbolic");
-        spilt_button_content.set_label("Unlike");
-
-        imp.favourite_button_split.set_sensitive(true);
-        toast!(self, "Liked the Video successfully.");
-    }
-
-    pub async fn unlike(&self) {
-        let imp = self.imp();
-        let inid = self.inid();
-        let spilt_button_content = imp.favourite_button_split_content.get();
-        let spilt_button = imp.favourite_button_split.get();
-        imp.favourite_button_split.set_sensitive(false);
-        match spawn_tokio(async move { EMBY_CLIENT.unlike(&inid).await }).await {
-            Ok(_) => (),
-            Err(e) => {
-                toast!(self, e.to_user_facing());
-                return;
-            }
-        };
-
-        spilt_button.set_action_name(Some("like.series"));
-        spilt_button_content.set_icon_name("non-starred-symbolic");
-        spilt_button_content.set_label("Like");
-
-        imp.favourite_button_split.set_sensitive(true);
-        toast!(self, "Unliked the Video successfully.");
-    }
+    
 
     pub async fn setup_background(&self) {
         let id = self.id();
@@ -630,7 +539,6 @@ impl ItemPage {
         let handlerid = self.bind_button(&playback, &info);
         imp.playbuttonhandlerid.replace(Some(handlerid));
         imp.playbutton.set_sensitive(true);
-        imp.favourite_button_split.set_sensitive(true);
     }
 
     pub async fn selectepisode(&self, seriesinfo: SeriesInfo) {
@@ -641,7 +549,6 @@ impl ItemPage {
         imp.inid.replace(id.clone());
 
         imp.playbutton.set_sensitive(false);
-        imp.favourite_button_split.set_sensitive(false);
         imp.line1spinner.set_visible(true);
         let playback =
             match spawn_tokio(async move { EMBY_CLIENT.get_playbackinfo(&id).await }).await {
@@ -667,7 +574,6 @@ impl ItemPage {
                 let handlerid = obj.bind_button(&playback, &info);
                 obj.imp().playbuttonhandlerid.replace(Some(handlerid));
                 obj.imp().playbutton.set_sensitive(true);
-                obj.imp().favourite_button_split.set_sensitive(true);
         }));
 
         if let Some(overview) = seriesinfo.overview {
@@ -695,7 +601,9 @@ impl ItemPage {
             }
         };
 
-        spawn(glib::clone!(@weak self as obj=>async move {
+        let id = self.id();
+
+        spawn(glib::clone!(@weak self as obj, @strong id=>async move {
                 {
                     let mut str = String::new();
                     if let Some(communityrating) = item.community_rating {
@@ -770,10 +678,9 @@ impl ItemPage {
                     let user_data = item.user_data.as_ref().unwrap();
                     if let Some (is_favourite) = user_data.is_favorite {
                         if is_favourite {
-                            let imp = obj.imp();
-                            imp.favourite_button_split.set_action_name(Some("unlike"));
-                            imp.favourite_button_split_content.set_icon_name("starred-symbolic");
-                            imp.favourite_button_split_content.set_label("Unlike");
+                            obj.imp().favourite_button.set_active(true);
+                        } else {
+                            obj.imp().favourite_button.set_active(false);
                         }
                     }
                 }
@@ -788,6 +695,8 @@ impl ItemPage {
                 } else {
                     obj.selectmovie(item.id, item.name, item.user_data).await; 
                 }
+
+                obj.imp().bind_actions(&id).await;
         }));
     }
 
@@ -979,11 +888,6 @@ impl ItemPage {
             }
         };
 
-        if results.items.is_empty() {
-            hortu.set_visible(false);
-            return;
-        }
-
         hortu.set_items(&results.items);
     }
 
@@ -1019,58 +923,77 @@ impl ItemPage {
         let imp = self.imp();
         let namedropdown = imp.namedropdown.get();
         let subdropdown = imp.subdropdown.get();
+        namedropdown.set_factory(Some(&factory(true)));
+        namedropdown.set_list_factory(Some(&factory(false)));
+        subdropdown.set_factory(Some(&factory(true)));
+        subdropdown.set_list_factory(Some(&factory(false)));
+
         let playbutton = imp.playbutton.get();
-        let namelist = gtk::StringList::new(&[]);
-        let sublist = gtk::StringList::new(&[]);
+
+        let vstore = gtk::gio::ListStore::new::<glib::BoxedAnyObject>();
+        imp.videoselection.set_model(Some(&vstore));
+
+        let sstore = gtk::gio::ListStore::new::<glib::BoxedAnyObject>();
+        imp.subselection.set_model(Some(&sstore));
 
         if let Some(media) = playbackinfo.media_sources.first() {
             for stream in &media.media_streams {
                 if stream.stream_type == "Subtitle" {
-                    if let Some(d) = &stream.display_title {
-                        sublist.append(d);
-                    } else {
-                        println!("No value");
-                    }
+                    let dl = DropdownList {
+                        line1: stream.display_title.clone(),
+                        line2: stream.title.clone(),
+                    };
+                    let object = glib::BoxedAnyObject::new(dl);
+                    sstore.append(&object);
                 }
             }
         }
+
         for media in &playbackinfo.media_sources {
-            namelist.append(&media.name);
+            let dl = DropdownList {
+                line1: Some(media.name.clone()),
+                line2: None,
+            };
+
+            let object = glib::BoxedAnyObject::new(dl);
+            vstore.append(&object);
         }
-        namedropdown.set_model(Some(&namelist));
-        subdropdown.set_model(Some(&sublist));
-        namedropdown.set_factory(Some(&factory()));
-        subdropdown.set_factory(Some(&factory()));
+        namedropdown.set_model(Some(&imp.videoselection));
+        subdropdown.set_model(Some(&imp.subselection));
 
         namedropdown.connect_selected_item_notify(move |dropdown| {
-            let selected = dropdown.selected_item();
-            let selected = selected.and_downcast_ref::<gtk::StringObject>().unwrap();
-            let selected = selected.string();
-            for _i in 0..sublist.n_items() {
-                sublist.remove(0);
-            }
-            for media in playbackinfo.media_sources.clone() {
-                if media.name == selected {
-                    for stream in media.media_streams {
-                        if stream.stream_type == "Subtitle" {
-                            if let Some(d) = stream.display_title {
-                                sublist.append(&d);
-                            } else {
-                                println!("No value");
+            if let Some(entry) = dropdown.selected_item().and_downcast::<glib::BoxedAnyObject>()
+            {
+                let dl: std::cell::Ref<DropdownList> = entry.borrow();
+                let selected = dl.line1.clone().unwrap();
+                for _i in 0..sstore.n_items() {
+                    sstore.remove(0);
+                }
+                for media in playbackinfo.media_sources.clone() {
+                    if media.name == selected {
+                        for stream in media.media_streams {
+                            if stream.stream_type == "Subtitle" {
+                                let dl = DropdownList {
+                                    line1: stream.display_title,
+                                    line2: stream.title,
+                                };
+                                let object = glib::BoxedAnyObject::new(dl);
+                                sstore.append(&object);
                             }
                         }
+                        subdropdown.set_selected(0);
+                        break;
                     }
-                    break;
                 }
-            }
+            }   
         });
-        let info = info.clone();
 
         if SETTINGS.resume() {
             if let Some(userdata) = &info.user_data {
-                if let Some(percentage) = userdata.played_percentage {
-                    if percentage > 0. {
-                        playbutton.set_label("Resume");
+                if let Some(ticks) = userdata.playback_position_ticks {
+                    if ticks > 0 {
+                        let sec = ticks / 10000000;
+                        playbutton.set_label(&format!("Resume {}",format_duration(sec as i64)));
                     }
                 }
             }
@@ -1086,20 +1009,28 @@ impl ItemPage {
         let info = info.clone();
 
         playbutton.connect_clicked(glib::clone!(@weak self as obj => move |_| {
-            let nameselected = namedropdown.selected_item();
-            let nameselected = nameselected
-                .and_downcast_ref::<gtk::StringObject>()
-                .unwrap();
-            let nameselected = nameselected.string();
-            let subselected = subdropdown.selected_item();
-            let subselected = if subselected.is_some() {
-                Some(subselected.and_downcast_ref::<gtk::StringObject>().unwrap().string().to_string())
+
+            let nameselected = 
+                if let Some(entry) = namedropdown.selected_item().and_downcast::<glib::BoxedAnyObject>()
+            {
+                let dl: std::cell::Ref<DropdownList> = entry.borrow();
+                dl.line1.clone().unwrap_or_default()
             } else {
-                None
+                return;
             };
+
+            let subselected =
+                if let Some(entry) = subdropdown.selected_item().and_downcast::<glib::BoxedAnyObject>()
+            {
+                let dl: std::cell::Ref<DropdownList> = entry.borrow();
+                &dl.line1.clone()
+            } else {
+                &None
+            };
+
             for media in playbackinfo.media_sources.clone() {
                 if media.name == nameselected {
-                    let medianameselected = nameselected.to_string();
+                    let medianameselected = nameselected;
                     let url = media.direct_stream_url.clone();
                     let back = Back {
                         id: info.id.clone(),
@@ -1168,4 +1099,9 @@ impl ItemPage {
     pub fn get_window(&self) -> Window {
         self.root().unwrap().downcast::<Window>().unwrap()
     }
+}
+
+pub struct DropdownList {
+    pub line1: Option<String>,
+    pub line2: Option<String>,
 }
